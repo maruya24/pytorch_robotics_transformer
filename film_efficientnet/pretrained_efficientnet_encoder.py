@@ -13,7 +13,8 @@ from pytorch_robotics_transformer.film_efficientnet.film_efficientnet_encoder im
 from pytorch_robotics_transformer.film_efficientnet.film_conditioning_layer import FilmConditioning
 
 class EfficientNetEncoder(nn.Module):
-    def __init__(self, 
+    def __init__(self,
+                 token_embedding_size: int = 512,
                  weights: Optional[str] = 'imagenet',
                  early_film: bool = True,
                  include_top: bool = False,
@@ -21,14 +22,14 @@ class EfficientNetEncoder(nn.Module):
         super().__init__()
         
         self.conv1x1 = nn.Conv2d(in_channels=1536, # If we use EfficientNetB3 and input image has 3 channels, in_channels is 1536.
-                                 out_channels=512,
+                                 out_channels=token_embedding_size,
                                  kernel_size=1,
                                  stride=1,
                                  padding=0,
                                  bias=False
                                  )
         self.net = EfficientNetB3(weights=weights, include_top=include_top, include_film=early_film)
-        self.film_layer = FilmConditioning(num_channels=512, text_vector_size=512)
+        self.film_layer = FilmConditioning(num_channels=token_embedding_size, text_vector_size=512)
 
         self.early_film = early_film
         self._pooling = pooling
@@ -48,4 +49,5 @@ class EfficientNetEncoder(nn.Module):
         if not self._pooling:
             return features
 
+        # Global average pool.
         return torch.mean(features, dim=(2,3))

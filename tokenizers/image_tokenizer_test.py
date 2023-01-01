@@ -4,7 +4,7 @@ from pytorch_robotics_transformer.tokenizers import image_tokenizer
 from absl.testing import parameterized
 
 # Run this command above the robotics_transformer_pytorch directory
-# python -m robotics_transformer_pytorch.tokenizers.image_tokenizer_test
+# python -m pytorch.robotics_transformer.tokenizers.image_tokenizer_test
 
 class ImageTokenizerTest(parameterized.TestCase, unittest.TestCase):
 

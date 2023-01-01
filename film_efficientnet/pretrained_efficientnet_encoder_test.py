@@ -35,10 +35,11 @@ class PretrainedEfficientnetEncoderTest(unittest.TestCase):
         image_transformed = img_trasnform(image) # tensor
         image_transformed = torch.tile(image_transformed.unsqueeze(0), (10,1,1,1))
 
-        model = eff.EfficientNetEncoder()
+        token_embedding_size = 512
+        model = eff.EfficientNetEncoder(token_embedding_size = token_embedding_size)
         model.eval()
         preds = model(image_transformed, context)
-        self.assertEqual(preds.shape, (10, 512))
+        self.assertEqual(preds.shape, (10, token_embedding_size))
 
     def test_imagenet_classification(self):
         """Test that we can correctly classify an image of a cat."""

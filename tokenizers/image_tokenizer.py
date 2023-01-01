@@ -11,10 +11,11 @@ from pytorch_robotics_transformer.tokenizers.token_learner import TokenLearnerMo
 
 class RT1ImageTokenizer(nn.Module):
     def __init__(self,
+               embedding_output_dim: int = 512,
                use_token_learner: bool = False,
                num_tokens: int = 8):
         super().__init__()
-        self._tokenizer = EfficientNetEncoder(weights='imagenet')
+        self._tokenizer = EfficientNetEncoder(token_embedding_size=embedding_output_dim, emearly_film=True, pooling=False)
 
         self._use_token_learner = use_token_learner
         if self._use_token_learner:

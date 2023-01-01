@@ -10,6 +10,8 @@ import torch
 import torch.nn as nn
 from gym import spaces
 
+
+# This is a robotics transformer network.
 class TransformerNetwork(nn.Module):
     """A transformer based actor network."""
 
