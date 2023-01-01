@@ -51,6 +51,7 @@ class FilmEfficientnetTest(parameterized.TestCase, unittest.TestCase):
         predictor = ILSVRCPredictor(top=10)
 
         film_preds = predictor.predict_topk(eff_output)
+        print(film_preds)
         self.assertIn('tabby', film_preds)
 
 if __name__ == '__main__':
