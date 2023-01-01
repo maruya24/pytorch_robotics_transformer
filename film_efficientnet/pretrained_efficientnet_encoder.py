@@ -9,8 +9,8 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
-from robotics_transformer_pytorch.film_efficientnet.film_efficientnet_encoder import EfficientNetB3
-from robotics_transformer_pytorch.film_efficientnet.film_conditioning_layer import FilmConditioning
+from pytorch_robotics_transformer.film_efficientnet.film_efficientnet_encoder import EfficientNetB3
+from pytorch_robotics_transformer.film_efficientnet.film_conditioning_layer import FilmConditioning
 
 class EfficientNetEncoder(nn.Module):
     def __init__(self, weights: Optional[str] = 'imagenet'):

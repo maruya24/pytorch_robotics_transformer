@@ -1,6 +1,6 @@
 import unittest
 import torch
-from robotics_transformer_pytorch.tokenizers import image_tokenizer
+from pytorch_robotics_transformer.tokenizers import image_tokenizer
 from absl.testing import parameterized
 
 # Run this command above the robotics_transformer_pytorch directory

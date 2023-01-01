@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from robotics_transformer_pytorch.film_efficientnet.pretrained_efficientnet_encoder import EfficientNetEncoder
-from robotics_transformer_pytorch.tokenizers.token_learner import TokenLearnerModule
+from pytorch_robotics_transformer.film_efficientnet.pretrained_efficientnet_encoder import EfficientNetEncoder
+from pytorch_robotics_transformer.tokenizers.token_learner import TokenLearnerModule
 
 class RT1ImageTokenizer(nn.Module):
     def __init__(self,

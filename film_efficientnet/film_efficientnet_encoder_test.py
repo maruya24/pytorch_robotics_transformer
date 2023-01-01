@@ -8,7 +8,7 @@ import numpy as np
 from torchvision import transforms
 import matplotlib.pyplot as plt
 
-from robotics_transformer_pytorch.film_efficientnet.film_efficientnet_encoder import EfficientNetB3, ILSVRCPredictor
+from pytorch_robotics_transformer.film_efficientnet.film_efficientnet_encoder import EfficientNetB3, ILSVRCPredictor
 
 resize = 300
 mean = (0.485, 0.456, 0.406)

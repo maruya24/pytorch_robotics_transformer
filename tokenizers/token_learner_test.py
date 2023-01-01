@@ -1,6 +1,6 @@
 import unittest
 import torch
-from robotics_transformer_pytorch.tokenizers.token_learner import TokenLearnerModule
+from pytorch_robotics_transformer.tokenizers.token_learner import TokenLearnerModule
 
 # Type this command on your terminal aboved robotics_transformer_pytorch directory.
 # python -m robotics_transformer_pytorch.tokenizer.token_learnerr_test

@@ -4,7 +4,7 @@ from action_tokenizer import RT1ActionTokenizer
 import numpy as np
 from collections import OrderedDict
 from typing import List, Dict
-from robotics_transformer_pytorch.tokenizers.batched_action_sample import batched_action_sampler
+from pytorch_robotics_transformer.tokenizers.batched_action_sample import batched_action_sampler
 
 class ActionTokenizerTest(unittest.TestCase):
     
