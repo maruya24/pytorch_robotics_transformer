@@ -36,7 +36,7 @@ This action_space is just information about each action.
 These information are very convenient when interpreting, examining, cliping, and processing the action
 because the action is dictionary with key names which are the same as the action_space.
 
-action will be look like
+action value will be look like
 action = {
     'terminate': 1,
     'world_vector': [0.9, 0.8, -0.3],

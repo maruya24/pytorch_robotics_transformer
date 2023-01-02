@@ -8,7 +8,28 @@ from typing import Optional, Tuple, Union, Any, Dict, List
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from gym import spaces
+from torchvision import transforms
+
+
+# This transformation is for imagenet, not RT-1.
+# This is interim preprocessing way. Use another transformatioin for RT-1.
+
+
+############# self._state_space (network space)の定義の際にshapeの4次元縛りをしないように変更した
+############# network_stateの更新の仕方など、inference時の挙動が不明
+
+resize = 300
+mean = (0.485, 0.456, 0.406)
+std = (0.229, 0.224, 0.225)
+img_trasnform = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(resize),
+                transforms.CenterCrop(resize),
+                transforms.ToTensor(),
+                transforms.Normalize(mean, std)
+            ])
 
 
 # This is a robotics transformer network.
@@ -21,7 +42,7 @@ class TransformerNetwork(nn.Module):
             output_tensor_space: spaces.Dict, # action space like dict. keys are world_vector, rotation_delta, gripper_closedness_action, terminate_episode
             train_step_counter: int = 0, # ?
             vocab_size: int = 256, # Dimensionality of tokens from the output layer. This is also dimensionality of tokens from the input layer.
-            token_embedding_size: int = 512, # RT1ImageTokenizerの引数のembedding_output_dim。どこにも使われていないからpytorchの方では消した。この値はEfficientNetの出力の後付け足した1x1convのチャネル数で決まる。現在は512. 1x1convはEfficientNetEncodeの実装にある。
+            token_embedding_size: int = 512, # RT1ImageTokenizer outputs(=context_image_tokens) has embedding dimension of token_embedding_size. This will finally be utilized in 1x1 Conv in EfficientNetEncoder class.
             num_layers: int = 1,
             layer_size: int = 4096, # This corresponds to key_dim which is the size of each attention head for query, key and values.
             num_heads: int = 8,
@@ -34,8 +55,8 @@ class TransformerNetwork(nn.Module):
             return_attention_scores: bool = False):
         super().__init__()
 
-        self._input_tensor_spec = input_tensor_space
-        self._output_tensor_spec = output_tensor_space
+        self._input_tensor_space = input_tensor_space
+        self._output_tensor_space = output_tensor_space
         self._train_step_counter = train_step_counter
         self._actions = None
         self._returns = None
@@ -56,6 +77,7 @@ class TransformerNetwork(nn.Module):
 
         # create tokenizers
         self._image_tokenizer = image_tokenizer.RT1ImageTokenizer(
+            embedding_output_dim=self._token_embedding_size,
             use_token_learner=use_token_learner,
             num_tokens=8)
         self._action_tokenizer = action_tokenizer.RT1ActionTokenizer(
@@ -68,6 +90,41 @@ class TransformerNetwork(nn.Module):
 
         # generate loss mask and attention mask
         self._generate_masks()
+
+        # define mappings to token embedding size
+        self._action_token_emb = nn.Linear(self._vocab_size, self._token_embedding_size)
+
+        # define loss function
+        self._loss_object = nn.CrossEntropyLoss(reduce=False)
+
+        self._attention_scores = []
+        self._use_token_learner = use_token_learner
+
+        self._state_space = spaces.Dict(
+            {
+                'context_image_tokens': 
+                            spaces.Box(low= -np.inf, high= np.inf, 
+                            shape=(time_sequence_length, self._tokens_per_context_image, token_embedding_size), 
+                            dtype=np.float32),
+                'action_tokens':
+                            spaces.MultiDiscrete(np.full((time_sequence_length, self._tokens_per_action),vocab_size)),
+                # Stores where in the window we are.
+                # This value is within range [0, time_sequence_length + 1].
+                # When seq_idx == time_sequence_length, context_image_tokens and
+                # action_tokens need to be shifted to the left.
+                 'seq_idx': 
+                            spaces.Discrete(time_sequence_length+1)
+                # Our data is like context_image_tokens + action_tokens + context_image_tokens + action_tokens + context_image_tokens ...
+                # 1 time step means [context_image_tokens + action_tokens]
+                # seq_idx means which time steps we are.
+            }
+        )
+
+    @property
+    def attention_scores(self) -> List[torch.Tensor]:
+        """Return attention score. This is for debugging/visualization purpose."""
+        return self._attention_scores
+
 
     def _get_action_index_for_token(self, k):
         """Returns action associated with the token at given position `k`.
@@ -131,3 +188,263 @@ class TransformerNetwork(nn.Module):
                         mask = 1
                 action_mask[i, j] = mask
         self._default_attention_mask -= action_mask
+
+
+    def call(self,
+           observations: Dict[str, torch.Tensor],
+           network_state: Dict[str, torch.Tensor], # network_state retain past obvervation and action at inference phase.
+           training: bool = False):
+
+        # used to determine training vs inference call
+        # outer_rank will be 2 -> [b, t] during training and
+        # outer_rank will be 1 -> [b] during inference
+        outer_rank = self._get_outer_rank(observations)
+        assert outer_rank in (1, 2), "outer rank should be 1 or 2"
+
+        b, t = self._get_batch_size_and_seq_len(network_state) 
+
+        context_image_tokens, action_tokens, attention_mask = self._get_tokens_and_mask(
+        observations, network_state)
+
+        self._aux_info = {'action_labels': action_tokens}
+
+        if outer_rank == 1:  # This is an inference call
+            # run transformer in loop to produce action tokens one-by-one
+            seq_idx = network_state['seq_idx'][0]
+            action_t = torch.minimum(seq_idx, self._time_sequence_length - 1) # 0 <= action_t < time_sequence_length
+            # Transformer shifts all to the left by one step by default (it's usually
+            # predicting the next token as default training task...).
+            transformer_shift = -1
+            # We only want to get the action predicted at time_step.
+            # This index means the output of the last observation token that is at action_t time step.
+            start_index = (
+                transformer_shift + self._tokens_per_context_image + action_t *
+                (self._single_time_step_num_tokens))
+            current_action_tokens = []
+            action_predictions_logits = []
+            for k in range(self._tokens_per_action):
+                action_index = start_index + k
+                # token: (b, 1)
+                # token_logits: (b, 1 vocab_size)
+                token, token_logits = self._transformer_call_and_slice(
+                    context_image_tokens,
+                    action_tokens,
+                    attention_mask=attention_mask,
+                    batch_size=b,
+                    slice_start=action_index  # slicing single action dimension
+                )
+                action_predictions_logits.append(token_logits)
+                current_action_tokens.append(token)
+
+                # Add the predicted token to action_tokens
+                action_tokens = action_tokens.view(b, -1) # [b, t, self._tokens_per_action] -> [b, t * self._tokens_per_action]
+                action_start_index = (action_t * self._tokens_per_action) + k
+                # replace action_tokens[:, action_tokens] with the predicted token. Note that this is not insert.
+                # action_tokens: [b, t, self._tokens_per_action]
+                action_tokens = torch.concat([
+                    action_tokens[:, :action_start_index], token,
+                    action_tokens[:, action_start_index + 1:]
+                ],axis=1)
+                action_tokens = action_tokens.view(b, t, self._tokens_per_action) # [b, t * self._tokens_per_action] -> [b, t, self._tokens_per_action]
+            self._aux_info.update({
+                # action_predictions_logits is
+                # [b, self._tokens_per_action, self._vocab_size]
+                'action_predictions_logits': torch.concat(action_predictions_logits, 1)
+            })
+            
+            predicted_tokens_for_output = torch.concat(current_action_tokens, 1) # [b, self._tokens_per_action]
+            one_state_action_tokens = predicted_tokens_for_output.unsqueeze(1) # [b, 1, self._tokens_per_action]
+
+            # Add predicted tokens to action_tokens to network_state['action_tokens']
+            state_action_tokens = network_state['action_tokens'] # (b, time_sequence_length, self._tokens_per_action)
+            # replace state_action_tokens[:, action_t, ...] with the predicted tokens. Note that this is not insert.
+            network_state['action_tokens'] = torch.concat([
+                state_action_tokens[:, :action_t, ...], one_state_action_tokens,
+                state_action_tokens[:, action_t + 1:, ...]
+            ], axis=1)
+
+            # Increment the time_step for the next inference call.
+            network_state['seq_idx'] = torch.minimum(seq_idx + 1, self._time_sequence_length)
+
+            self._loss = torch.tensor(0.0)
+
+
+    def _get_outer_rank(self, observations: Dict[str, torch.Tensor]) -> int:
+        # used to determine training vs inference call
+        # outer_rank will be 2 -> [b, t] during training and
+        # outer_rank will be 1 -> [b] during inference
+
+        for k in observations.keys():
+            obs_value = observations[k]
+            obs_value_shape = obs_value.shape
+
+            obs_space = self._input_tensor_space[k]
+            obs_space_shape = obs_space.shape
+            break
+        return len(obs_value_shape) - len(obs_space_shape)
+
+    def _get_batch_size_and_seq_len(self, network_state):
+        image_shape = network_state['context_image_tokens'].shape
+        b = image_shape[0]
+        t = image_shape[1]
+        return b, t
+    
+    
+    def _transformer_call(
+        self,
+        context_image_tokens: torch.Tensor, # (b, t, num token, emb_di,)
+        action_tokens: torch.Tensor, # ?
+        batch_size: int,
+        attention_mask: torch.Tensor,
+        ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+
+        input_token_sequence = self._assemble_input_token_sequence(context_image_tokens, action_tokens, batch_size) # [b, t*num_tokens, emb_dim]
+
+        # run transformer
+        output_tokens, self._attention_scores = self._transformer(input_token_sequence, attention_mask) # (bs, seq_len, vocab_size)
+        return output_tokens
+    
+    # input_token_sequence = [context_image_tokens + action_tokens]
+    def _assemble_input_token_sequence(self, context_image_tokens, action_tokens, batch_size):
+        # embed action tokens
+        action_tokens = F.one_hot(action_tokens, num_classes=self._vocab_size)
+        action_tokens = self._action_token_emb(action_tokens) # [b, t , num_tokens, emb_dim]?
+        action_tokens = torch.zeros_like(action_tokens) # turn embedded action_tokens into zero tensor? I don't know why.
+        # At inference, this is replaced with predicted tokens one by one.
+        # But after that, that action_tokens are turned into zeros.
+
+        # assemble token sequence
+        input_token_sequence = torch.concat((context_image_tokens, action_tokens),dim=2)
+
+        input_token_sequence = input_token_sequence.view(batch_size, -1, self._token_embedding_size) # [b, t*num_tokens, emb_dim]
+
+    # Call transformer, slice output, return predicted token.
+    def _transformer_call_and_slice(self,
+                                *args,
+                                slice_start: int = 0,
+                                slice_length: int = 1,
+                                **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        output_tokens = self._transformer_call(*args, **kwargs)
+
+        slice_end = slice_start + slice_length
+        token_logits = output_tokens[:, slice_start:slice_end, :] # (b, slice_length, vocab_size)
+        token = torch.argmax(token_logits, dim=-1, output_type=torch.int32)
+
+        return token, token_logits
+
+
+    def _get_tokens_and_mask(self,
+                           observations: Dict[str, torch.Tensor],
+                           network_state: Dict[str, torch.Tensor],
+                            training: bool = False):
+        # tokenize all inputs
+        context_image_tokens, network_state = self._tokenize_images(
+            observations, network_state, training)
+
+        action_tokens = self._tokenize_actions(observations, network_state)
+
+        # generate transformer attention mask
+        attention_mask = self._default_attention_mask
+
+        return (context_image_tokens, action_tokens, attention_mask)
+
+    # At inferece, we don't use network_state at all.
+    # At training, this will just convert image and context into tokens.
+    def _tokenize_images(self, observations, network_state):
+        image = observations['image']  # [b, t, h, w, c] or [b, h, w, c]
+        outer_rank = self._get_outer_rank(observations)
+
+        if outer_rank == 1:  # This is an inference call
+            seq_idx = network_state['seq_idx'][0]
+            time_step = np.maximum(seq_idx, self._time_sequence_length - 1)
+            image = np.expand_dims(image, 1) # [b, h, w, c] -> [b, 1, h, w, c]
+
+        image_shape = image.shape
+        b = image_shape[0]
+        input_t = image_shape[1]
+        h = image_shape[2]
+        w = image_shape[3]
+        c = image_shape[4]
+
+        # return context from observation after check whether context is in observation.
+        context = self._extract_context_from_observation(observations, input_t) # [b, t, emb-size] or None
+
+        # preprocess image
+        image = image.reshape((b*input_t, h, w, c))
+        image = img_trasnform(image)
+        image =image.reshape((b, input_t, h, w, c))
+
+        # get image tokens
+        context_image_tokens = self._image_tokenizer(image, context=context) # (batch, t, num_tokens, embedding_dim)
+        num_tokens = context_image_tokens.shape[2]
+        # context_image_tokens = context_image_tokens.view(b, input_t, num_tokens, 1, -1) # (batch, t, num_tokens, 1, embedding_dim)
+
+        # update network state at inference
+        # At inference, we retain some images to accelerate computation.
+        if outer_rank == 1:  # This is an inference call
+            # network_state['context_image_tokens'] = network_state['context_image_tokens'].view(
+            #     b, self._time_sequence_length, self._tokens_per_context_image, 1, -1)
+            network_state['context_image_tokens'] = network_state['context_image_tokens'].view(
+                b, self._time_sequence_length, self._tokens_per_context_image, -1)
+            state_image_tokens = network_state['context_image_tokens']
+            # network_state as input for this call is the output from the last call.
+            # Therefore, we need to shift all images to the left by 1 in the time axis
+            # to align with the time dim in this call.
+            state_image_tokens =  torch.roll(state_image_tokens, -1, axis=1) \
+                if seq_idx == self._time_sequence_length else state_image_tokens
+            # if seq_idx == self._time_sequence_length, state_image_tokens will be shifted to the left along time axis
+
+
+            # Note that in inference, size of context_image_tokens is (batch, 1, num_tokens, embedding_dim)
+            # maximum of time_step is self._time_sequence_length - 1
+            context_image_tokens = torch.concat([
+                state_image_tokens[:, :time_step, ...], context_image_tokens,
+                state_image_tokens[:, time_step + 1:, ...]
+            ],axis=1)
+            network_state['context_image_tokens'] = context_image_tokens
+
+        return context_image_tokens, network_state
+
+    def _tokenize_actions(self, observations, network_state):
+        outer_rank = self._get_outer_rank(observations)
+
+        if outer_rank == 1:  # This is an inference call
+            action_tokens = network_state['action_tokens']
+            seq_idx = network_state['seq_idx'][0]
+            # network_state as input for this call is the output from the last call.
+            # Therefore, we need to shift all actions by 1 to the left.
+            action_tokens =  torch.roll(action_tokens, -1, axis=1) if seq_idx == self._time_sequence_length else action_tokens
+        else:
+            assert outer_rank == 2
+            # self._actions was set through set_actions function.
+            if self._actions is None: # When there is no action that will be tokenized to begin with, we create zero tensor.
+                b, t = self._get_batch_size_and_seq_len(network_state)
+                action_tokens = torch.zeros(
+                    shape=[b, t, self._tokens_per_action], dtype=torch.int32)
+            else:
+                action_tokens = self._action_tokenizer.tokenize(self._actions)
+        return action_tokens
+
+    # output context from observation. size: [b, t, emb-size]
+    def _extract_context_from_observation(self, observations, seq_len):
+        """Extract context from observation."""
+        context = None
+        if 'natural_language_embedding' in observations:
+            outer_rank = self._get_outer_rank(observations)
+            context = observations['natural_language_embedding']  # [b, t, emb-size] or [b, emb-size]
+            if outer_rank == 1:
+                context = np.tile(context[:, None], [1, seq_len, 1])
+                # [b, emb-size] ->  [b, 1, emb-size] -> [b, seq_len, emb-size]
+        return context
+
+    # Actions is passed to this class only through this function.
+    def set_actions(self, actions: Dict[str, np.ndarray]):
+        """Sets actions that will be tokenized and used in transformer network.
+
+        Args:
+        actions: actions to be tokenized and used in transformer network. example
+            actions are terminate = 1 world_vector = [0.9, 0.8, -0.3]
+            rotation_delta = [-0.1, 0.2, .6] gripper_closedness = 0.9
+        ※ terminate is either 0 or 1.
+        """
+        self._actions = actions
