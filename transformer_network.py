@@ -12,14 +12,18 @@ import torch.nn.functional as F
 from gym import spaces
 from torchvision import transforms
 
-
-# This transformation is for imagenet, not RT-1.
-# This is interim preprocessing way. Use another transformatioin for RT-1.
+########## changes from original ##########
+# consider actions before current timestep.
+# abolist 4-d constrain of self._state_space
+# not implement add_summaries function which is used for tensorboard.
+###########################################
 
 
 ############# self._state_space (network space)の定義の際にshapeの4次元縛りをしないように変更した
 ############# network_stateの更新の仕方など、inference時の挙動が不明
 
+# This transformation is for imagenet, not RT-1.
+# This is interim preprocessing way. Use another transformatioin for RT-1.
 resize = 300
 mean = (0.485, 0.456, 0.406)
 std = (0.229, 0.224, 0.225)
@@ -180,9 +184,10 @@ class TransformerNetwork(nn.Module):
                 action_j = self._get_action_index_for_token(j)
                 mask = 0
                 if action_i != -1 and action_j != -1: # Check both of i and j are actions.
-                    # Ignore actions of previous time steps.
-                    if action_j < action_i:
-                        mask = 1
+                    ######## change from original. We consider actions of previous time steps.
+                    # # Ignore actions of previous time steps.
+                    # if action_j < action_i:
+                    #     mask = 1
                     # If we're not auto-regression, ignore action of current time step.
                     if (action_j == action_i and j <= i):
                         mask = 1
@@ -203,6 +208,8 @@ class TransformerNetwork(nn.Module):
 
         b, t = self._get_batch_size_and_seq_len(network_state) 
 
+        # context_image_tokens: (b, t, num_tokens, embedding_dim)
+        # action_tokens: [b, t, self._tokens_per_action]
         context_image_tokens, action_tokens, attention_mask = self._get_tokens_and_mask(
         observations, network_state)
 
@@ -268,6 +275,51 @@ class TransformerNetwork(nn.Module):
 
             self._loss = torch.tensor(0.0)
 
+        else:
+            # training call --> simply run one transformer forward pass
+            # output_tokens: (bs, t*num_tokens, vocab_size)
+            output_tokens = self._transformer_call(
+                context_image_tokens,
+                action_tokens,
+                attention_mask=attention_mask,
+                batch_size=b)
+
+            # Gather all predicted actions for the action loss.
+            action_logits = output_tokens[:,(self._action_tokens_mask - 1)] # (bs, t*tokens_per_action, vocab_size)
+            action_logits_for_training = action_logits.view(b, t, self._tokens_per_action, -1) # (bs, t, self._tokens_per_action, vocab_size)
+
+            # Only take the last action as the action.
+            # action_logits_for_output is [b, self._tokens_per_action, emb]
+            action_logits_for_output = action_logits_for_training[:, -1] # This will take action at last time step in this training.
+            # predicted_tokens_for_output is [b, self._tokens_per_action]
+            predicted_tokens_for_output = torch.argmax(action_logits_for_output, dim=-1)
+
+            num_items = ((b * t).float() * self._single_time_step_num_tokens)
+            # action_logits_for_training: (bs, t, self._tokens_per_action, vocab_size)
+            # action_tokens, (b, t, self._tokens_per_action)
+            # action_loss: (b, t) 
+            action_loss = torch.mean(
+                self._loss_object(action_logits_for_training.transpose(1,3), action_tokens) /num_items, # (b, t, self._tokens_per_action)
+                dim=-1)
+                
+            self._loss = action_loss
+
+            # store action labels and predictions for visualization
+            self._aux_info.update({
+                'action_predictions':
+                    torch.argmax(action_logits_for_training, axis=-1),
+                'action_loss':
+                    action_loss,
+                'actor_loss_mask':
+                    torch.ones((b), dtype=torch.float32)
+            })
+
+        # output_actions: Dict[str, np.ndarray]
+        output_actions = self._action_tokenizer.detokenize(predicted_tokens_for_output)
+
+        return output_actions, network_state
+
+
 
     def _get_outer_rank(self, observations: Dict[str, torch.Tensor]) -> int:
         # used to determine training vs inference call
@@ -301,17 +353,18 @@ class TransformerNetwork(nn.Module):
         input_token_sequence = self._assemble_input_token_sequence(context_image_tokens, action_tokens, batch_size) # [b, t*num_tokens, emb_dim]
 
         # run transformer
-        output_tokens, self._attention_scores = self._transformer(input_token_sequence, attention_mask) # (bs, seq_len, vocab_size)
+        output_tokens, self._attention_scores = self._transformer(input_token_sequence, attention_mask) # (bs, t*num_tokens, vocab_size)
         return output_tokens
     
     # input_token_sequence = [context_image_tokens + action_tokens]
     def _assemble_input_token_sequence(self, context_image_tokens, action_tokens, batch_size):
         # embed action tokens
         action_tokens = F.one_hot(action_tokens, num_classes=self._vocab_size)
-        action_tokens = self._action_token_emb(action_tokens) # [b, t , num_tokens, emb_dim]?
-        action_tokens = torch.zeros_like(action_tokens) # turn embedded action_tokens into zero tensor? I don't know why.
-        # At inference, this is replaced with predicted tokens one by one.
-        # But after that, that action_tokens are turned into zeros.
+        action_tokens = self._action_token_emb(action_tokens) # [b, t , num_tokens, emb_dim]
+
+        ###### change from original. we don't turn action embedded tokens into zeros.
+        # action_tokens = torch.zeros_like(action_tokens) ############
+        
 
         # assemble token sequence
         input_token_sequence = torch.concat((context_image_tokens, action_tokens),dim=2)
@@ -448,3 +501,9 @@ class TransformerNetwork(nn.Module):
         ※ terminate is either 0 or 1.
         """
         self._actions = actions
+
+    def get_actor_loss(self) -> torch.Tensor:
+        return self._loss
+
+    def get_aux_info(self) -> Dict[str, Any]:
+        return self._aux_info

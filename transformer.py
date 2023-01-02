@@ -171,5 +171,5 @@ class Transformer(nn.Module):
             x, score = layer(x, mask=attention_mask)
             if score is not None:
                 scores.append(score)
-        x = self._output_tokens(x) # # (bs, seq_len, vocab_size)
+        x = self._output_tokens(x) # (bs, seq_len, vocab_size)
         return x, scores
