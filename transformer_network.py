@@ -1,8 +1,34 @@
-# Robotics Transformer Network
+#------------------ Main changes that I added to the original code ---------
+# Translated tensorflow implementation into pytorch implementation
+# Added comments
+# Replace spec with spaces. These are just changes of variable names.
+# Used openAI gym to define observation and action variable 
+# Considered actions before current timestep.
+# Abolished 4-d constrain of self._state_space
+# Didn't implement add_summaries function which is used for tensorboard
+#----------------------------------------------------------------------------
+# You can find the original code from here[https://github.com/google-research/robotics_transformer].
 
-from tokenizers import action_tokenizer
-from tokenizers import image_tokenizer
-import transformer
+# Subject to the terms and conditions of the Apache License, Version 2.0 that the original code follows, 
+# I have retained the following copyright notice written on it.
+
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from pytorch_robotics_transformer.tokenizers import action_tokenizer
+from pytorch_robotics_transformer.tokenizers import image_tokenizer
+from pytorch_robotics_transformer import transformer
 
 from typing import Optional, Tuple, Union, Any, Dict, List
 import numpy as np
@@ -12,26 +38,18 @@ import torch.nn.functional as F
 from gym import spaces
 from torchvision import transforms
 
-########## changes from original ##########
-# consider actions before current timestep.
-# abolist 4-d constrain of self._state_space
-# not implement add_summaries function which is used for tensorboard.
-###########################################
-
-
 ############# self._state_space (network space)の定義の際にshapeの4次元縛りをしないように変更した
 ############# network_stateの更新の仕方など、inference時の挙動が不明
 
 # This transformation is for imagenet, not RT-1.
 # This is interim preprocessing way. Use another transformatioin for RT-1.
-resize = 300
 mean = (0.485, 0.456, 0.406)
 std = (0.229, 0.224, 0.225)
 img_trasnform = transforms.Compose([
-                transforms.ToPILImage(),
-                transforms.Resize(resize),
-                transforms.CenterCrop(resize),
-                transforms.ToTensor(),
+                # transforms.ToPILImage(),
+                # transforms.Resize(resize),
+                # transforms.CenterCrop(resize),
+                # transforms.ToTensor(),
                 transforms.Normalize(mean, std)
             ])
 
@@ -195,10 +213,22 @@ class TransformerNetwork(nn.Module):
         self._default_attention_mask -= action_mask
 
 
-    def call(self,
+    def forward(self,
            observations: Dict[str, torch.Tensor],
-           network_state: Dict[str, torch.Tensor], # network_state retain past obvervation and action at inference phase.
-           training: bool = False):
+           network_state: Dict[str, torch.Tensor], # network_state retain obvervation toknes, action tokens, seq_idx.
+        ):
+
+        """Calls the transformer network.
+
+        Args:
+            observations: Observation data including image and natural language
+                embedding in dict of Tensors.
+        network_state: Network state data including time step, image, action
+            tokens, step number in dict of Tensors.
+
+        Returns:
+            A tuple `(Detokenized output actions, network state)`.
+        """
 
         # used to determine training vs inference call
         # outer_rank will be 2 -> [b, t] during training and
@@ -207,6 +237,8 @@ class TransformerNetwork(nn.Module):
         assert outer_rank in (1, 2), "outer rank should be 1 or 2"
 
         b, t = self._get_batch_size_and_seq_len(network_state) 
+        # space of network_state is self._state_space. network state is values that has batch dimension.
+        # network_state is mainly used when inference.
 
         # context_image_tokens: (b, t, num_tokens, embedding_dim)
         # action_tokens: [b, t, self._tokens_per_action]
@@ -319,6 +351,9 @@ class TransformerNetwork(nn.Module):
 
         return output_actions, network_state
 
+    ######## change from original
+    # def add_summaries
+
 
 
     def _get_outer_rank(self, observations: Dict[str, torch.Tensor]) -> int:
@@ -345,7 +380,7 @@ class TransformerNetwork(nn.Module):
     def _transformer_call(
         self,
         context_image_tokens: torch.Tensor, # (b, t, num token, emb_di,)
-        action_tokens: torch.Tensor, # ?
+        action_tokens: torch.Tensor, 
         batch_size: int,
         attention_mask: torch.Tensor,
         ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
@@ -388,11 +423,10 @@ class TransformerNetwork(nn.Module):
 
     def _get_tokens_and_mask(self,
                            observations: Dict[str, torch.Tensor],
-                           network_state: Dict[str, torch.Tensor],
-                            training: bool = False):
+                           network_state: Dict[str, torch.Tensor]):
         # tokenize all inputs
         context_image_tokens, network_state = self._tokenize_images(
-            observations, network_state, training)
+            observations, network_state)
 
         action_tokens = self._tokenize_actions(observations, network_state)
 
@@ -401,10 +435,11 @@ class TransformerNetwork(nn.Module):
 
         return (context_image_tokens, action_tokens, attention_mask)
 
-    # At inferece, we don't use network_state at all.
+    # At training, we don't use network_state at all.
     # At training, this will just convert image and context into tokens.
     def _tokenize_images(self, observations, network_state):
         image = observations['image']  # [b, t, h, w, c] or [b, h, w, c]
+        print(image.shape)
         outer_rank = self._get_outer_rank(observations)
 
         if outer_rank == 1:  # This is an inference call
@@ -423,15 +458,25 @@ class TransformerNetwork(nn.Module):
         context = self._extract_context_from_observation(observations, input_t) # [b, t, emb-size] or None
 
         # preprocess image
-        image = image.reshape((b*input_t, h, w, c))
+        image = image.view((b*input_t, h, w, c))# image is already tensor and its range is [0,1]
         image = img_trasnform(image)
-        image =image.reshape((b, input_t, h, w, c))
+        image =image.view((b, input_t, h, w, c))
+        print(image.shape)
 
         # get image tokens
         context_image_tokens = self._image_tokenizer(image, context=context) # (batch, t, num_tokens, embedding_dim)
         num_tokens = context_image_tokens.shape[2]
         # context_image_tokens = context_image_tokens.view(b, input_t, num_tokens, 1, -1) # (batch, t, num_tokens, 1, embedding_dim)
 
+
+        # 訓練の時はcontext_image_tokens.shape: (batch, t, num_tokens, embedding_dim)
+        # 推論の時はcontext_image_tokens.shape: (batch, 1, num_tokens, embedding_dim)
+        # 推論の時は1タイムステップ分しかないが、過去のタイムステップでのcontext_image_tokensはnetwork_state内に保存されている。
+        # そのため、推論時にはその保存された過去のタイムステップでのcontext_image_tokensと先ほどtokenにしたcontext_image_tokensを結合させる。
+        # network_stateは全ての過去のタイプステップにおけるtokenを保存するのではなく、time_sequence_length分のタイムステップのみのtokenを保存する
+        # 現在のタイムステップがtime_sequence_lengthより小さければ、network_stateの現在のタイムステップに対応する部分へ普通に保存する。
+        # 現在のタイムステップがtime_sequence_lengthより大きければ、最も古いタイムスリップのデータを破棄した後に最新のデータを保存する。
+        # ここではその操作をstate_image_tokens変数を時間軸方向に左にシフトすることで実現している。※torch.rollの部分
         # update network state at inference
         # At inference, we retain some images to accelerate computation.
         if outer_rank == 1:  # This is an inference call

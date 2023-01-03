@@ -23,13 +23,13 @@ action_space = gym.spaces.Dict(
 )
 or 
 action_space = gym.spaces.Dict(
-        OrderedDict((
-                     ('terminate', gym.spaces.Discrete(2), 
-                     ('world_vector', gym.spaces.Box(low= -1.0, high= 1.0, shape=(3,), dtype=np.float32)),
-                     ('rotation_delta', gym.spaces.Box(low= -np.pi / 2., high= np.pi / 2., shape=(3,), dtype=np.float32)),
-                     ('gripper_closedness_action', gym.spaces.Box(low= -1.0  , high= 1.0, shape=(1,), dtype=np.float32))
-                     ))
-)
+            OrderedDict([
+                ('terminate', gym.spaces.Discrete(2)), 
+                ('world_vector', gym.spaces.Box(low= -1.0, high= 1.0, shape=(3,), dtype=np.float32)),
+                ('rotation_delta', gym.spaces.Box(low= -np.pi / 2., high= np.pi / 2., shape=(3,), dtype=np.float32)),
+                ('gripper_closedness_action', gym.spaces.Box(low= -1.0  , high= 1.0, shape=(1,), dtype=np.float32))
+                ])
+        )
 Please use OrderedDict if you want gym.spaces.Dict to keep order of actions.
 
 This action_space is just information about each action.

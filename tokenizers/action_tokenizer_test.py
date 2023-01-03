@@ -1,10 +1,10 @@
 import unittest
 from gym import spaces
-from action_tokenizer import RT1ActionTokenizer
+from pytorch_robotics_transformer.tokenizers.action_tokenizer import RT1ActionTokenizer
 import numpy as np
 from collections import OrderedDict
 from typing import List, Dict
-from pytorch_robotics_transformer.tokenizers.batched_action_sample import batched_action_sampler
+from pytorch_robotics_transformer.tokenizers.batched_space_sample import batched_space_sampler
 
 class ActionTokenizerTest(unittest.TestCase):
     
@@ -115,11 +115,11 @@ class ActionTokenizerTest(unittest.TestCase):
 
     # This test is the closest to a real situation.
     def testTokenizeAndDetokenizeIsEqual(self):
-        action_space_dict = OrderedDict((('terminate', spaces.Discrete(2)), 
+        action_space_dict = OrderedDict([('terminate', spaces.Discrete(2)), 
                                          ('world_vector', spaces.Box(low= -1.0, high= 1.0, shape=(3,), dtype=np.float32)),
                                          ('rotation_delta', spaces.Box(low= -np.pi / 2., high= np.pi / 2., shape=(3,), dtype=np.float32)),
                                          ('gripper_closedness_action', spaces.Box(low= -1.0  , high= 1.0, shape=(1,), dtype=np.float32))
-                                         ))
+                                         ])
         action_space = spaces.Dict(action_space_dict)
         tokenizer = RT1ActionTokenizer(action_space, vocab_size=1024)
         self.assertEqual(8, tokenizer.tokens_per_action)
@@ -138,7 +138,7 @@ class ActionTokenizerTest(unittest.TestCase):
         
         # Repeat the test with batched actions
         batch_size = 2
-        batched_action = batched_action_sampler(action_space, batch_size)
+        batched_action = batched_space_sampler(action_space, batch_size)
         action_tokens = tokenizer.tokenize(batched_action)
         policy_action = tokenizer.detokenize(action_tokens)
 

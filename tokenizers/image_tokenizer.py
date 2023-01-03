@@ -15,7 +15,7 @@ class RT1ImageTokenizer(nn.Module):
                use_token_learner: bool = False,
                num_tokens: int = 8):
         super().__init__()
-        self._tokenizer = EfficientNetEncoder(token_embedding_size=embedding_output_dim, emearly_film=True, pooling=False)
+        self._tokenizer = EfficientNetEncoder(token_embedding_size=embedding_output_dim, early_film=True, pooling=False)
 
         self._use_token_learner = use_token_learner
         if self._use_token_learner:
