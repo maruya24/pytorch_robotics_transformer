@@ -1,5 +1,4 @@
 from gym import spaces
-import numpy as np
 import torch
 
 from typing import Dict, Union
@@ -83,31 +82,33 @@ class RT1ActionTokenizer():
     def tokens_per_action(self) -> int:
         return self._tokens_per_action
 
-    def tokenize(self, action: Dict[str, Union[int, np.ndarray]]) -> np.ndarray:
+    def tokenize(self, action: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Tokenizes an action."""
         action_tokens = []
         # Perform tokenizing in order of self._action_order 
-        for k in self._action_order: # If a is Discrete, the size of a is () or (batch,), which means the former is scalar of int type and the later is 1-d ndarray.
+        for k in self._action_order: # If a is Discrete, the size of a is () or (batch,), which means the former is scalar of Tensor type and the later is 1-d Tensor.
             a = action[k]
             a_space = self._action_space[k]
             if isinstance(a_space, spaces.Discrete):
-                assert np.all(a < self._vocab_size), "Discrete action should be smaller than vocab size."
+                assert torch.all(a < self._vocab_size), "Discrete action should be smaller than vocab size."
                 token = a #  Discrete action is already token. The size is () or (batch,)
-                token = np.expand_dims(a,axis=-1) # The size is (1,) or (batch, 1). Discrete action will be one token.
-            else: # if a is Box, size of a is (action_size) or (batch, action_size). The a is ndarray.
-                a = np.clip(a, a_space.low, a_space.high)
+                token = a.unsqueeze(-1) # The size is (1,) or (batch, 1). Discrete action will be one token.
+            else: # if a is Box, size of a is (action_size) or (batch, action_size).
+                low = torch.tensor(a_space.low)
+                high = torch.tensor(a_space.high)
+                a = torch.clamp(a, low, high)
                 # Normalize the action.
-                token = (a - a_space.low) / (a_space.high - a_space.low)
+                token = (a - low) / (high - low)
                 # Bucket and discretize the action to vocab_size.
                 token = token * (self._vocab_size - 1)
-                token = token.astype(np.int32) # The size is (action_size) or (batch, action_size).
-            action_tokens.append(token) # if this action has action_size, this action will be action_size tokenes.
+                token = token.to(torch.int32) # The size is (action_size) or (batch, action_size).
+            action_tokens.append(token) # if this action has action_size, this action will be action_size tokens.
         # Contatenate all actions. The size will be (tokens_per_action) or (batch,  tokens_per_action)
-        action_tokens = np.concatenate(action_tokens, axis=-1)
+        action_tokens = torch.concat(action_tokens, dim=-1)
         return action_tokens
 
     # The size of action_tokens is (tokens_per_action) or  (batch, tokens_per_action)
-    def detokenize(self, action_tokens: np.ndarray) -> Dict[str, np.ndarray]:
+    def detokenize(self, action_tokens: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Detokenizes an action."""
         action = {}
         token_index = 0
@@ -117,25 +118,22 @@ class RT1ActionTokenizer():
             # Discrete actions are already assumed to be tokens.
             space = self._action_space[k]
             if isinstance(space, spaces.Discrete):
-                action[k] = action_tokens[..., token_index] # The size of action[k] : () or (batch,), which means the former is scalar of int type and the later is 1-d ndarray.
+                # The size of action_tokens[k] : (1,) or (batch,), which means the former is scalar of Tensor type and the later is 1-d Tensor.
+                action[k] = action_tokens[..., token_index]
                 # A poor model may output tokens outside the allowed range, in that case
                 # set them to a default value, the 0 token in this case.
-                if action[k].shape == (): # This conditional branch assure that if action[k] is 0-d ndarray, action[k] will be int.
-                    action[k] = action[k].tolist() # action[k] will be int.
-                    action[k] =  action[k] if action[k] < space.n else 0
-                else:
-                    action[k] = np.where(action[k] > space.n, np.zeros_like(action[k]), action[k])
+                action[k] = torch.where(action[k] > space.n, torch.zeros_like(action[k]), action[k])
                 token_index += 1
             else:
                 actions = []
                 action_dim = space.shape[0]
                 for j in range(action_dim):
                     a = action_tokens[..., token_index:token_index + 1] # The size of a: (1,) or (batch, 1)
-                    a = a.astype(np.float32) # Change int32 to float32
+                    a = a.to(torch.float32) # Change int32 to float32
                     # de-normalize
                     a = a / (self._vocab_size - 1)
                     a = a * (space.high[j] - space.low[j]) + space.low[j]
                     actions.append(a)
                     token_index += 1
-                action[k] = np.concatenate(actions, axis=-1) # size: (action_dim) or (batch, action_dim)
+                action[k] = torch.concat(actions, dim=-1) # size: (action_dim) or (batch, action_dim)
         return action

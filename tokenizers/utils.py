@@ -1,6 +1,7 @@
-from typing import Dict
+from typing import Dict, Union
 import numpy as np
 from gym import spaces
+import torch
 
 # This function will turn the space into the batched space and return a batched action sample.
 # The output format is compatible with OpenAI gym's Vectorized Environments.
@@ -14,3 +15,12 @@ def batched_space_sampler(space: spaces.Dict, batch_size: int):
         value_list = np.stack(value_list, axis=0)
         batched_sample[key] = value_list
     return batched_sample
+
+# This function turn all dict values into tensor.
+def np_to_tensor(sample_dict: Dict[str, Union[int,np.ndarray]]) -> Dict[str, torch.Tensor]:
+    new_dict = {}
+    for key, value in sample_dict.items():
+        value = torch.tensor(value)
+        new_dict[key] = value
+
+    return new_dict

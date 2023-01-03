@@ -10,6 +10,12 @@ import matplotlib.pyplot as plt
 
 from pytorch_robotics_transformer.film_efficientnet.film_efficientnet_encoder import EfficientNetB3, ILSVRCPredictor
 
+
+# If you want run this test, move to the directory above pytorch_robotics_transformer directory, type below command on terminal.
+# python -m pytorch_robotics_transformer.film_efficientnet.film_efficientnet_encoder_test
+# If you want to test all test files in film_efficientnet directory, type below command on terminal.
+# python -m unittest discover -s pytorch_robotics_transformer/film_efficientnet -p "*_test.py"
+
 resize = 300
 mean = (0.485, 0.456, 0.406)
 std = (0.229, 0.224, 0.225)
@@ -51,7 +57,7 @@ class FilmEfficientnetTest(parameterized.TestCase, unittest.TestCase):
         predictor = ILSVRCPredictor(top=10)
 
         film_preds = predictor.predict_topk(eff_output)
-        print(film_preds)
+        # print(film_preds)
         self.assertIn('tabby', film_preds)
 
 if __name__ == '__main__':

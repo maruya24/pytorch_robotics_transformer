@@ -16,12 +16,9 @@ from pytorch_robotics_transformer.transformer_network_test_set_up import space_n
 from pytorch_robotics_transformer.transformer_network_test_set_up import state_space_list
 from pytorch_robotics_transformer.transformer_network_test_set_up import TIME_SEQUENCE_LENGTH
 from pytorch_robotics_transformer.transformer_network_test_set_up import TransformerNetworkTestUtils
-from pytorch_robotics_transformer.tokenizers.batched_space_sample import batched_space_sampler
+from pytorch_robotics_transformer.tokenizers.utils import batched_space_sampler
+from pytorch_robotics_transformer.tokenizers.utils import np_to_tensor
 
-def np_to_tensor (sample_dict: Dict[str, np.ndarray]):
-    for key, value in sample_dict.items():
-        value = torch.from_numpy(value)
-        sample_dict[key] = value
 
 
 class TransformerNetworkTest(TransformerNetworkTestUtils):
@@ -40,7 +37,7 @@ class TransformerNetworkTest(TransformerNetworkTestUtils):
         network.set_actions(self._train_action)
 
         network_state = batched_space_sampler(network._state_space, BATCH_SIZE)
-        np_to_tensor(network_state) # change np.ndarray type of sample value into tensor type
+        network_state = np_to_tensor(network_state) # change np.ndarray type of sample value into tensor type
 
         output_actions, network_state = network(
             train_observation, network_state=network_state)

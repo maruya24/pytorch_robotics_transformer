@@ -4,7 +4,9 @@ from pytorch_robotics_transformer.tokenizers.action_tokenizer import RT1ActionTo
 import numpy as np
 from collections import OrderedDict
 from typing import List, Dict
-from pytorch_robotics_transformer.tokenizers.batched_space_sample import batched_space_sampler
+from pytorch_robotics_transformer.tokenizers.utils import batched_space_sampler, np_to_tensor
+import torch
+import sys
 
 class ActionTokenizerTest(unittest.TestCase):
     
@@ -22,8 +24,10 @@ class ActionTokenizerTest(unittest.TestCase):
         action = {
             'terminate': 1
         }
+        action = np_to_tensor(action)
         action_tokens = tokenizer.tokenize(action)
-        self.assertEqual(np.array([1]), action_tokens)
+        self.assertEqual(torch.tensor([1]), action_tokens)
+        
 
     def testDetokenize_Discrete(self):
         action_space = spaces.Dict(
@@ -33,14 +37,14 @@ class ActionTokenizerTest(unittest.TestCase):
         )
         tokenizer = RT1ActionTokenizer(action_space, vocab_size=10)
         # 0 token should become 0
-        action = tokenizer.detokenize(np.array([0])) # tokenized action is ndarray.
-        self.assertEqual(0, action['terminate'])
+        action = tokenizer.detokenize(torch.tensor([0])) # tokenized action is ndarray.
+        self.assertEqual(torch.tensor(0), action['terminate'])
         # 1 token should become 1
-        action = tokenizer.detokenize(np.array([1]))
-        self.assertEqual(1, action['terminate'])
+        action = tokenizer.detokenize(torch.tensor([1]))
+        self.assertEqual(torch.tensor(1), action['terminate'])
         # OOV(Out of vocabulary) 3 token should become a default 0
-        action = tokenizer.detokenize(np.array([3]))
-        self.assertEqual(0, action['terminate'])
+        action = tokenizer.detokenize(torch.tensor([3]))
+        self.assertEqual(torch.tensor(0), action['terminate'])
 
 
     # Use one Box action.
@@ -57,6 +61,7 @@ class ActionTokenizerTest(unittest.TestCase):
         action = {
             'world_vector': np.array([0.1, 0.5, -0.8])
         }
+        action = np_to_tensor(action)
         action_tokens = tokenizer.tokenize(action)
         self.assertSequenceEqual([4, 6, 0], list(action_tokens))
 
@@ -78,6 +83,7 @@ class ActionTokenizerTest(unittest.TestCase):
         action = {
             'world_vector': world_vec
         }
+        action = np_to_tensor(action)
         action_tokens = tokenizer.tokenize(action)
         self.assertSequenceEqual(
         [batch_size, time_dimension, tokenizer.tokens_per_action], list(action_tokens.shape))
@@ -97,6 +103,7 @@ class ActionTokenizerTest(unittest.TestCase):
         action = {
             'world_vector': [minimum, maximum]
         }
+        action = np_to_tensor(action)
         action_tokens = tokenizer.tokenize(action)
         # Minimum value will go to 0
         # Maximum value witll go to vocab_size-1
@@ -128,17 +135,19 @@ class ActionTokenizerTest(unittest.TestCase):
         n_repeat = 10
         for _ in range(n_repeat):
             action = action_space.sample()
+            action = np_to_tensor(action)
             action_tokens = tokenizer.tokenize(action)
             policy_action = tokenizer.detokenize(action_tokens)
             # print(action)
             # print(action_tokens)
             # print(policy_action)
             for k in action:
-                np.testing.assert_allclose(action[k], policy_action[k], 2)
+                np.testing.assert_allclose(action[k].numpy(), policy_action[k].numpy(), 2)
         
         # Repeat the test with batched actions
         batch_size = 2
         batched_action = batched_space_sampler(action_space, batch_size)
+        batched_action = np_to_tensor(batched_action)
         action_tokens = tokenizer.tokenize(batched_action)
         policy_action = tokenizer.detokenize(action_tokens)
 
@@ -148,7 +157,7 @@ class ActionTokenizerTest(unittest.TestCase):
 
         for k in batched_action:
             for a, policy_a in zip(batched_action[k], policy_action[k]):
-                np.testing.assert_almost_equal(a, policy_a, decimal=2)
+                np.testing.assert_almost_equal(a.numpy(), policy_a.numpy(), decimal=2)
 
 
 
