@@ -19,7 +19,6 @@ from pytorch_robotics_transformer.transformer_network_test_set_up import Transfo
 from pytorch_robotics_transformer.tokenizers.utils import batched_space_sampler
 from pytorch_robotics_transformer.tokenizers.utils import np_to_tensor
 
-torch.manual_seed(1234) # this is for random behavior of preprocessors
 
 class TransformerNetworkTest(TransformerNetworkTestUtils):
     @parameterized.named_parameters([{
@@ -36,8 +35,8 @@ class TransformerNetworkTest(TransformerNetworkTestUtils):
 
         network.set_actions(self._train_action)
 
-        network_state = batched_space_sampler(network._state_space, BATCH_SIZE)
-        network_state = np_to_tensor(network_state) # change np.ndarray type of sample value into tensor type
+        network_state = batched_space_sampler(network._state_space, batch_size=BATCH_SIZE)
+        network_state = np_to_tensor(network_state) # change np.ndarray type of sample values into tensor type
 
         output_actions, network_state = network(
             train_observation, network_state=network_state)
@@ -47,6 +46,31 @@ class TransformerNetworkTest(TransformerNetworkTestUtils):
         self.assertEqual(list(network.get_actor_loss().shape), expected_shape)
 
         self.assertCountEqual(self._train_action.keys(), output_actions.keys())
+
+    @parameterized.named_parameters([{
+        'testcase_name': '_' + name,
+        'space_name': name,
+    } for name in space_names_list()])
+    def testTransformerInferenceLossCall(self, space_name):
+        state_space = NAME_TO_STATE_SPACES[space_name]
+        observation = NAME_TO_INF_OBSERVATIONS[space_name] #  observation has no time dimension unlike during training.
+
+        network = transformer_network.TransformerNetwork(
+        input_tensor_space=state_space,
+        output_tensor_space=self._action_space,
+        time_sequence_length=TIME_SEQUENCE_LENGTH)
+
+        network.set_actions(self._inference_action) # self._inference_action has no time dimension unlike self._train_action.
+        # inference currently only support batch size of 1
+        network_state = batched_space_sampler(network._state_space, batch_size=1)
+        network_state = np_to_tensor(network_state) # change np.ndarray type of sample values into tensor type
+
+        output_actions, network_state = network(
+            observation, network_state=network_state)
+
+        self.assertEqual(network.get_actor_loss().item(), 0.0)
+        self.assertCountEqual(self._inference_action.keys(), output_actions.keys())
+
 
 if __name__ == '__main__':
     unittest.main()

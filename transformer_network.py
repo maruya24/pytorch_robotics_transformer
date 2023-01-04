@@ -129,7 +129,7 @@ class TransformerNetwork(nn.Module):
                             spaces.Discrete(time_sequence_length+1)
                 # Our data is like context_image_tokens + action_tokens + context_image_tokens + action_tokens + context_image_tokens ...
                 # 1 time step means [context_image_tokens + action_tokens]
-                # seq_idx means which time steps we are.
+                # seq_idx means which time steps we are. But it is adjusted when it exceeds time_sequence_length.
             }
         )
 
@@ -241,7 +241,8 @@ class TransformerNetwork(nn.Module):
         if outer_rank == 1:  # This is an inference call
             # run transformer in loop to produce action tokens one-by-one
             seq_idx = network_state['seq_idx'][0]
-            action_t = torch.minimum(seq_idx, self._time_sequence_length - 1) # 0 <= action_t < time_sequence_length
+            action_t = torch.minimum(seq_idx, 
+                    torch.tensor(self._time_sequence_length - 1)) # 0 <= action_t < time_sequence_length
             # Transformer shifts all to the left by one step by default (it's usually
             # predicting the next token as default training task...).
             transformer_shift = -1
@@ -252,6 +253,7 @@ class TransformerNetwork(nn.Module):
                 (self._single_time_step_num_tokens))
             current_action_tokens = []
             action_predictions_logits = []
+            # Repeat inference tokens_per_action times.
             for k in range(self._tokens_per_action):
                 action_index = start_index + k
                 # token: (b, 1)
@@ -274,7 +276,7 @@ class TransformerNetwork(nn.Module):
                 action_tokens = torch.concat([
                     action_tokens[:, :action_start_index], token,
                     action_tokens[:, action_start_index + 1:]
-                ],axis=1)
+                ],dim=1)
                 action_tokens = action_tokens.view(b, t, self._tokens_per_action) # [b, t * self._tokens_per_action] -> [b, t, self._tokens_per_action]
             self._aux_info.update({
                 # action_predictions_logits is
@@ -291,10 +293,12 @@ class TransformerNetwork(nn.Module):
             network_state['action_tokens'] = torch.concat([
                 state_action_tokens[:, :action_t, ...], one_state_action_tokens,
                 state_action_tokens[:, action_t + 1:, ...]
-            ], axis=1)
+            ], dim=1)
 
             # Increment the time_step for the next inference call.
-            network_state['seq_idx'] = torch.minimum(seq_idx + 1, self._time_sequence_length)
+            # network_state['seq_idx'] never exceed time_sequence_length.
+            network_state['seq_idx'] = torch.minimum(seq_idx + 1, 
+                        torch.tensor(self._time_sequence_length))
 
             self._loss = torch.tensor(0.0)
 
@@ -331,7 +335,7 @@ class TransformerNetwork(nn.Module):
             # store action labels and predictions for visualization
             self._aux_info.update({
                 'action_predictions':
-                    torch.argmax(action_logits_for_training, axis=-1),
+                    torch.argmax(action_logits_for_training, dim=-1),
                 'action_loss':
                     action_loss,
                 'actor_loss_mask':
@@ -345,7 +349,6 @@ class TransformerNetwork(nn.Module):
 
     ######## change from original
     # def add_summaries
-
 
 
     def _get_outer_rank(self, observations: Dict[str, torch.Tensor]) -> int:
@@ -409,7 +412,7 @@ class TransformerNetwork(nn.Module):
 
         slice_end = slice_start + slice_length
         token_logits = output_tokens[:, slice_start:slice_end, :] # (b, slice_length, vocab_size)
-        token = torch.argmax(token_logits, dim=-1, output_type=torch.int32)
+        token = torch.argmax(token_logits, dim=-1)
 
         return token, token_logits
 
@@ -431,28 +434,29 @@ class TransformerNetwork(nn.Module):
     # At training, we don't use network_state at all.
     # At training, this will just convert image and context into tokens.
     def _tokenize_images(self, observations, network_state):
-        image = observations['image']  # [b, t, h, w, c] or [b, h, w, c]
+        image = observations['image']  # [b, t, c, h, w] or [b, c, h, w]
         outer_rank = self._get_outer_rank(observations)
 
         if outer_rank == 1:  # This is an inference call
             seq_idx = network_state['seq_idx'][0]
-            time_step = np.maximum(seq_idx, self._time_sequence_length - 1)
-            image = np.expand_dims(image, 1) # [b, h, w, c] -> [b, 1, h, w, c]
+            time_step = torch.minimum(seq_idx, 
+                    torch.tensor(self._time_sequence_length - 1))
+            image = image.unsqueeze(1) # [b, c, h, w] -> [b, 1, c, h, w]
 
         image_shape = image.shape
         b = image_shape[0]
         input_t = image_shape[1]
-        h = image_shape[2]
-        w = image_shape[3]
-        c = image_shape[4]
+        c = image_shape[2]
+        h = image_shape[3]
+        w = image_shape[4]
 
         # return context from observation after check whether context is in observation.
         context = self._extract_context_from_observation(observations, input_t) # [b, t, emb-size] or None
 
         # preprocess image
-        image = image.view((b*input_t, h, w, c))# image is already tensor and its range is [0,1]
+        image = image.view((b*input_t, c, h, w))# image is already tensor and its range is [0,1]
         image = preprocessors.convert_dtype_and_crop_images(image)
-        image =image.view((b, input_t, h, w, c))
+        image =image.view((b, input_t, c, h, w))
 
         # get image tokens
         context_image_tokens = self._image_tokenizer(image, context=context) # (batch, t, num_tokens, embedding_dim)
@@ -471,17 +475,15 @@ class TransformerNetwork(nn.Module):
         # update network state at inference
         # At inference, we retain some images to accelerate computation.
         if outer_rank == 1:  # This is an inference call
-            # network_state['context_image_tokens'] = network_state['context_image_tokens'].view(
-            #     b, self._time_sequence_length, self._tokens_per_context_image, 1, -1)
-            network_state['context_image_tokens'] = network_state['context_image_tokens'].view(
-                b, self._time_sequence_length, self._tokens_per_context_image, -1)
-            state_image_tokens = network_state['context_image_tokens']
+            state_image_tokens = network_state['context_image_tokens'] # (b, time_sequence_length, tokens_per_context_image, token_embedding_size)
             # network_state as input for this call is the output from the last call.
             # Therefore, we need to shift all images to the left by 1 in the time axis
             # to align with the time dim in this call.
-            state_image_tokens =  torch.roll(state_image_tokens, -1, axis=1) \
+            state_image_tokens =  torch.roll(state_image_tokens, -1, 1) \
                 if seq_idx == self._time_sequence_length else state_image_tokens
-            # if seq_idx == self._time_sequence_length, state_image_tokens will be shifted to the left along time axis
+            # if seq_idx == time_sequence_length, state_image_tokens will be shifted to the left along time axis
+            # seq_idx will be incremented in forward function. But it is adjusted so that it never exceed time_sequence_length.
+            # Therefore, shiftimg will always occur when time step exceeds time_sequence_length.
 
 
             # Note that in inference, size of context_image_tokens is (batch, 1, num_tokens, embedding_dim)
@@ -489,7 +491,7 @@ class TransformerNetwork(nn.Module):
             context_image_tokens = torch.concat([
                 state_image_tokens[:, :time_step, ...], context_image_tokens,
                 state_image_tokens[:, time_step + 1:, ...]
-            ],axis=1)
+            ], dim=1)
             network_state['context_image_tokens'] = context_image_tokens
 
         return context_image_tokens, network_state
@@ -502,7 +504,7 @@ class TransformerNetwork(nn.Module):
             seq_idx = network_state['seq_idx'][0]
             # network_state as input for this call is the output from the last call.
             # Therefore, we need to shift all actions by 1 to the left.
-            action_tokens =  torch.roll(action_tokens, -1, axis=1) if seq_idx == self._time_sequence_length else action_tokens
+            action_tokens =  torch.roll(action_tokens, -1, 1) if seq_idx == self._time_sequence_length else action_tokens
         else:
             assert outer_rank == 2
             # self._actions was set through set_actions function.
@@ -522,12 +524,12 @@ class TransformerNetwork(nn.Module):
             outer_rank = self._get_outer_rank(observations)
             context = observations['natural_language_embedding']  # [b, t, emb-size] or [b, emb-size]
             if outer_rank == 1:
-                context = np.tile(context[:, None], [1, seq_len, 1])
+                context = torch.tile(context[:, None], [1, seq_len, 1])
                 # [b, emb-size] ->  [b, 1, emb-size] -> [b, seq_len, emb-size]
         return context
 
     # Actions is passed to this class only through this function.
-    def set_actions(self, actions: Dict[str, np.ndarray]):
+    def set_actions(self, actions: Dict[str, torch.Tensor]):
         """Sets actions that will be tokenized and used in transformer network.
 
         Args:
