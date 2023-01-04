@@ -29,6 +29,7 @@
 from pytorch_robotics_transformer.tokenizers import action_tokenizer
 from pytorch_robotics_transformer.tokenizers import image_tokenizer
 from pytorch_robotics_transformer import transformer
+from pytorch_robotics_transformer.film_efficientnet import preprocessors
 
 from typing import Optional, Tuple, Union, Any, Dict, List
 import numpy as np
@@ -40,18 +41,6 @@ from torchvision import transforms
 
 ############# self._state_space (network space)の定義の際にshapeの4次元縛りをしないように変更した
 ############# network_stateの更新の仕方など、inference時の挙動が不明
-
-# This transformation is for imagenet, not RT-1.
-# This is interim preprocessing way. Use another transformatioin for RT-1.
-mean = (0.485, 0.456, 0.406)
-std = (0.229, 0.224, 0.225)
-img_trasnform = transforms.Compose([
-                # transforms.ToPILImage(),
-                # transforms.Resize(resize),
-                # transforms.CenterCrop(resize),
-                # transforms.ToTensor(),
-                transforms.Normalize(mean, std)
-            ])
 
 
 # This is a robotics transformer network.
@@ -459,7 +448,7 @@ class TransformerNetwork(nn.Module):
 
         # preprocess image
         image = image.view((b*input_t, h, w, c))# image is already tensor and its range is [0,1]
-        image = img_trasnform(image)
+        image = preprocessors.convert_dtype_and_crop_images(image)
         image =image.view((b, input_t, h, w, c))
         print(image.shape)
 

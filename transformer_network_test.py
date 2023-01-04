@@ -19,7 +19,7 @@ from pytorch_robotics_transformer.transformer_network_test_set_up import Transfo
 from pytorch_robotics_transformer.tokenizers.utils import batched_space_sampler
 from pytorch_robotics_transformer.tokenizers.utils import np_to_tensor
 
-
+torch.manual_seed(1234) # this is for random behavior of preprocessors
 
 class TransformerNetworkTest(TransformerNetworkTestUtils):
     @parameterized.named_parameters([{

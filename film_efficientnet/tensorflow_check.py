@@ -9,11 +9,13 @@ image_width = 640
 crop_size = 427
 
 images = data.chelsea() # ndarray
+images = np.tile(np.expand_dims(images,0), (10,1,1,1))
+print(images.shape)
 images = tf.image.resize(images, (512, 640))
 images = tf.cast(images, tf.uint8)
 # images = tf.image.convert_image_dtype(images, tf.float32)
 
-pad_then_crop = False
+pad_then_crop = True
 training = True
 
 
@@ -73,5 +75,6 @@ else:
 
 image_show = images.numpy()
 # image_show = np.clip(image_show, 0, 1)
-plt.imshow(image_show)
-plt.show()
+for i in range(5):
+  plt.imshow(image_show[i])
+  plt.show()
