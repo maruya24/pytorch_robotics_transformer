@@ -1,11 +1,21 @@
-# Reference
-# https://github.com/google-research/robotics_transformer
-# https://github.com/qfgaohao/pytorch-ssd/blob/master/vision/nn/mobilenetv3.py
-# https://github.com/d-li14/mobilenetv3.pytorch/blob/master/mobilenetv3.py#L108
-# https://github.com/facebookresearch/ClassyVision/blob/74e83dd97afbc9371b336304af09548f5080fa9c/classy_vision/models/efficientnet.py#L114
-# https://github.com/pytorch/vision/blob/main/torchvision/models/efficientnet.py
+# Subject to the terms and conditions of the Apache License, Version 2.0 that the original code follows, 
+# I have retained the following copyright notice written on it.
 
-# We only call EfficientNetB3 when using RT-1.
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# You can find the original code from here[https://github.com/google-research/robotics_transformer].
 
 import copy
 import math

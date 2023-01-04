@@ -1,8 +1,28 @@
+# Subject to the terms and conditions of the Apache License, Version 2.0 that the original code follows, 
+# I have retained the following copyright notice written on it.
+
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# You can find the original code from here[https://github.com/google-research/robotics_transformer].
+
+
+
 # This prepocessor is a simplfied version of original code.
 # This will pad the image and crop it at a random location
 # The cropped image maintain original image size and almost full field of view.
 # Omitted preprocessor_test.py. But you can do simple test by running this code.
-
 
 import torch
 import torch.nn.functional as F

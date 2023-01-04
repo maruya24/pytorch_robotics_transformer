@@ -1,16 +1,4 @@
 
-#-------------- Main changes that I added to the original code ---------
-# Translated tensorflow implementation into pytorch implementation
-# Added comments
-# Replace spec with spaces. These are just changes of variable names.
-# Used openAI gym to define observation and action variable
-# Omit state_spec_mask, state_spec_tcl that is in the original code.
-# Omit 2 observation list which is related to state_spec_mask, state_spec_tcl.
-# Omit FakeImageTokenizer class which is not used in the original codes.
-# Omit some unused functions.
-#----------------------------------------------------------------------------
-# You can find the original code from here[https://github.com/google-research/robotics_transformer].
-
 # Subject to the terms and conditions of the Apache License, Version 2.0 that the original code follows, 
 # I have retained the following copyright notice written on it.
 
@@ -27,6 +15,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# You can find the original code from here[https://github.com/google-research/robotics_transformer].
 
 
 import copy
