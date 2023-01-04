@@ -37,7 +37,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from gym import spaces
-from torchvision import transforms
+
+
 
 ############# self._state_space (network space)の定義の際にshapeの4次元縛りをしないように変更した
 ############# network_stateの更新の仕方など、inference時の挙動が不明
@@ -84,6 +85,7 @@ class TransformerNetwork(nn.Module):
         feed_forward_size=feed_forward_size,
         dropout_rate=dropout_rate,
         vocab_size=self._vocab_size,
+        input_token_emb_dim=self._token_embedding_size,
         return_attention_scores=return_attention_scores)
 
         # create tokenizers
@@ -106,7 +108,7 @@ class TransformerNetwork(nn.Module):
         self._action_token_emb = nn.Linear(self._vocab_size, self._token_embedding_size)
 
         # define loss function
-        self._loss_object = nn.CrossEntropyLoss(reduce=False)
+        self._loss_object = nn.CrossEntropyLoss(reduction='none')
 
         self._attention_scores = []
         self._use_token_learner = use_token_learner
@@ -305,8 +307,9 @@ class TransformerNetwork(nn.Module):
                 attention_mask=attention_mask,
                 batch_size=b)
 
-            # Gather all predicted actions for the action loss.
-            action_logits = output_tokens[:,(self._action_tokens_mask - 1)] # (bs, t*tokens_per_action, vocab_size)
+            # Gather all predicted actions for the action loss. Use fancy index to extract all predicted actions.
+            predicted_action_index = torch.tensor(self._action_tokens_mask) - 1
+            action_logits = output_tokens[:, predicted_action_index] # (bs, t*tokens_per_action, vocab_size)
             action_logits_for_training = action_logits.view(b, t, self._tokens_per_action, -1) # (bs, t, self._tokens_per_action, vocab_size)
 
             # Only take the last action as the action.
@@ -315,12 +318,12 @@ class TransformerNetwork(nn.Module):
             # predicted_tokens_for_output is [b, self._tokens_per_action]
             predicted_tokens_for_output = torch.argmax(action_logits_for_output, dim=-1)
 
-            num_items = ((b * t).float() * self._single_time_step_num_tokens)
+            num_items = (float(b * t) * self._single_time_step_num_tokens)
             # action_logits_for_training: (bs, t, self._tokens_per_action, vocab_size)
             # action_tokens, (b, t, self._tokens_per_action)
             # action_loss: (b, t) 
             action_loss = torch.mean(
-                self._loss_object(action_logits_for_training.transpose(1,3), action_tokens) /num_items, # (b, t, self._tokens_per_action)
+                self._loss_object(action_logits_for_training.permute(0, 3, 1, 2), action_tokens) /num_items, # (b, t, self._tokens_per_action)
                 dim=-1)
                 
             self._loss = action_loss
@@ -383,7 +386,7 @@ class TransformerNetwork(nn.Module):
     # input_token_sequence = [context_image_tokens + action_tokens]
     def _assemble_input_token_sequence(self, context_image_tokens, action_tokens, batch_size):
         # embed action tokens
-        action_tokens = F.one_hot(action_tokens, num_classes=self._vocab_size)
+        action_tokens = F.one_hot(action_tokens, num_classes=self._vocab_size).to(torch.float32)
         action_tokens = self._action_token_emb(action_tokens) # [b, t , num_tokens, emb_dim]
 
         ###### change from original. we don't turn action embedded tokens into zeros.
@@ -394,6 +397,7 @@ class TransformerNetwork(nn.Module):
         input_token_sequence = torch.concat((context_image_tokens, action_tokens),dim=2)
 
         input_token_sequence = input_token_sequence.view(batch_size, -1, self._token_embedding_size) # [b, t*num_tokens, emb_dim]
+        return input_token_sequence
 
     # Call transformer, slice output, return predicted token.
     def _transformer_call_and_slice(self,
@@ -428,7 +432,6 @@ class TransformerNetwork(nn.Module):
     # At training, this will just convert image and context into tokens.
     def _tokenize_images(self, observations, network_state):
         image = observations['image']  # [b, t, h, w, c] or [b, h, w, c]
-        print(image.shape)
         outer_rank = self._get_outer_rank(observations)
 
         if outer_rank == 1:  # This is an inference call
@@ -450,7 +453,6 @@ class TransformerNetwork(nn.Module):
         image = image.view((b*input_t, h, w, c))# image is already tensor and its range is [0,1]
         image = preprocessors.convert_dtype_and_crop_images(image)
         image =image.view((b, input_t, h, w, c))
-        print(image.shape)
 
         # get image tokens
         context_image_tokens = self._image_tokenizer(image, context=context) # (batch, t, num_tokens, embedding_dim)

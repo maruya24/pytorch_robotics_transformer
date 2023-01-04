@@ -68,8 +68,8 @@ def attention(q, k, v, key_dim, mask=None, dropout=None, return_attention_scores
     # score: (bs, h, sl, sl)
     
     if mask is not None:
-        # mask: (bs, 1, sl) or (bs, sl, sl)
-        mask = mask.unsqueeze(1)
+        # mask: (sl, sl)
+        mask = mask.unsqueeze(0).unsqueeze(1)
         scores = scores.masked_fill(mask == 0, -1e9)
     
     scores = F.softmax(scores, dim=-1)
@@ -130,6 +130,7 @@ class Transformer(nn.Module):
             feed_forward_size: int = 512, # This corresponds to d_model which is embedding dimension of each token in transformer part.
             dropout_rate: float = 0.1,
             vocab_size: int = 256, # Dimensionality of tokens from the output layer. This is also dimensionality of tokens from the input layer.
+            input_token_emb_dim: int = 512, # embedding dim of input tokens.
             return_attention_scores: bool = False,
             max_seq_len: int = 256 # Maximum sequence length. This Transformer can't receive tokens that are more than this number.
             ):
@@ -145,7 +146,7 @@ class Transformer(nn.Module):
             for _ in range(num_layers)
         ]
 
-        self._token_emb = nn.Linear(vocab_size, feed_forward_size)
+        self._token_emb = nn.Linear(input_token_emb_dim, feed_forward_size)
         self._position_emb = nn.Embedding(max_seq_len, feed_forward_size) # <--- 工夫が必要 ここだけBERTのようにする？
         self._output_tokens = nn.Linear(feed_forward_size, vocab_size)
 
