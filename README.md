@@ -1,4 +1,4 @@
-# Robotics Transformer (RT-1), in PyTorch
+# RT-1: Robotics Transformer, in PyTorch
 PyTorch re-implementation of [RT-1](https://github.com/google-research/robotics_transformer). This model is based on 2022 paper ["RT-1: Robotics Transformer for Real-World Control at Scale"](https://arxiv.org/abs/2212.06817).
 This implementation mostly follows the original codes but I made some changes for PyTorch compatibility or simplification.
 
