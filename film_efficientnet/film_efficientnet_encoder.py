@@ -446,7 +446,8 @@ class ILSVRCPredictor():
     def __init__(self, top=5):
         # Load label imformation of ILSVRC
         image_json_path = os.path.join(os.path.dirname(__file__), 'efficientnet_checkpoints/imagenet_classes.json')
-        self.class_index = json.load(open(image_json_path, "r"))
+        with open(image_json_path, "r") as f:
+            self.class_index = json.load(f)
 
         self.top = top
 

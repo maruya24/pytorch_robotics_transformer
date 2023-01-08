@@ -36,7 +36,7 @@ class TokenLearnerTest(unittest.TestCase):
         inputvec = torch.randn((batch * seq, embedding_dim, 10, 10))
 
         learnedtokens = token_learner_layer(inputvec)
-        self.assertEquals(list(learnedtokens.shape), [batch * seq, num_tokens, embedding_dim])
+        self.assertEqual(list(learnedtokens.shape), [batch * seq, num_tokens, embedding_dim])
 
 if __name__ == '__main__':
     unittest.main()

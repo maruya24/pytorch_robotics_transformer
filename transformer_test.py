@@ -21,7 +21,7 @@ import unittest
 import torch
 
 # from robotics_transformer_pytorch.transformer import Transformer
-from transformer import Transformer
+from pytorch_robotics_transformer.transformer import Transformer
 from absl.testing import parameterized
 
 class TransformerTest(parameterized.TestCase, unittest.TestCase):
@@ -41,6 +41,7 @@ class TransformerTest(parameterized.TestCase, unittest.TestCase):
             feed_forward_size=256,
             dropout_rate=0.1,
             vocab_size=self._vocab_size,
+            input_token_emb_dim=self._vocab_size,
             return_attention_scores=return_attention_scores,
             max_seq_len=15)
 
