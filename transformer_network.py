@@ -43,7 +43,7 @@ class TransformerNetwork(nn.Module):
             self,
             input_tensor_space: spaces.Dict, # observatioin space like dict. keys are image, natural_language_embedding
             output_tensor_space: spaces.Dict, # action space like dict. keys are world_vector, rotation_delta, gripper_closedness_action, terminate_episode
-            train_step_counter: int = 0, # ?
+            train_step_counter: int = 0,
             vocab_size: int = 256, # Dimensionality of tokens from the output layer. This is also dimensionality of tokens from the input layer.
             token_embedding_size: int = 512, # RT1ImageTokenizer outputs(=context_image_tokens) has embedding dimension of token_embedding_size. This will finally be utilized in 1x1 Conv in EfficientNetEncoder class.
             num_layers: int = 1,
@@ -455,16 +455,15 @@ class TransformerNetwork(nn.Module):
         # context_image_tokens = context_image_tokens.view(b, input_t, num_tokens, 1, -1) # (batch, t, num_tokens, 1, embedding_dim)
 
 
-        # 訓練の時はcontext_image_tokens.shape: (batch, t, num_tokens, embedding_dim)
-        # 推論の時はcontext_image_tokens.shape: (batch, 1, num_tokens, embedding_dim)
-        # 推論の時は1タイムステップ分しかないが、過去のタイムステップでのcontext_image_tokensはnetwork_state内に保存されている。
-        # そのため、推論時にはその保存された過去のタイムステップでのcontext_image_tokensと先ほどtokenにしたcontext_image_tokensを結合させる。
-        # network_stateは全ての過去のタイプステップにおけるtokenを保存するのではなく、time_sequence_length分のタイムステップのみのtokenを保存する
-        # 現在のタイムステップがtime_sequence_lengthより小さければ、network_stateの現在のタイムステップに対応する部分へ普通に保存する。
-        # 現在のタイムステップがtime_sequence_lengthより大きければ、最も古いタイムスリップのデータを破棄した後に最新のデータを保存する。
-        # ここではその操作をstate_image_tokens変数を時間軸方向に左にシフトすることで実現している。※torch.rollの部分
         # update network state at inference
-        # At inference, we retain some images to accelerate computation.
+        # At inference, we retain some context_image_tokens to accelerate computation.
+        # At inference, context_image_tokens : (batch, 1, num_tokens, embedding_dim)
+        # At inference, network_state stores context_image_tokens of past time steps.
+        # Here, we combine past context_image_tokens of network_state with current context_image_tokens.
+        # network_state only store tokens within time_sequence_length time steps.
+        # This means network_state does not store the tokens for all past steps, but only for time_sequence_length time steps.
+        # if current time step >= time_sequence_length, we store context_image_tokens after we discard the oldest context_image_tokens.
+        # Here, we implement that by shifting state_image_token to the left.
         if outer_rank == 1:  # This is an inference call
             state_image_tokens = network_state['context_image_tokens'] # (b, time_sequence_length, tokens_per_context_image, token_embedding_size)
             # network_state as input for this call is the output from the last call.
