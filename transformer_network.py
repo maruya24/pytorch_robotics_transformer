@@ -222,7 +222,7 @@ class TransformerNetwork(nn.Module):
         # t: time_sequence_length of this model
 
         # context_image_tokens: (b, t, num_tokens, embedding_dim)
-        # action_tokens: [b, t, self._tokens_per_action]
+        # action_tokens: (b, t, self._tokens_per_action)
         context_image_tokens, action_tokens, attention_mask = self._get_tokens_and_mask(
         observations, network_state)
 
@@ -364,14 +364,13 @@ class TransformerNetwork(nn.Module):
     
     def _transformer_call(
         self,
-        context_image_tokens: torch.Tensor, # (b, t, num token, emb_di,)
-        action_tokens: torch.Tensor, 
+        context_image_tokens: torch.Tensor, # (b, t, num token, emb_dim)
+        action_tokens: torch.Tensor, # (b, t, self._tokens_per_action)
         batch_size: int,
         attention_mask: torch.Tensor,
         ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
 
         input_token_sequence = self._assemble_input_token_sequence(context_image_tokens, action_tokens, batch_size) # [b, t*num_tokens, emb_dim]
-
         # run transformer
         output_tokens, self._attention_scores = self._transformer(input_token_sequence, attention_mask) # (bs, t*num_tokens, vocab_size)
         return output_tokens

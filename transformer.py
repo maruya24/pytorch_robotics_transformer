@@ -92,10 +92,12 @@ def attention(q, k, v, key_dim, mask=None, dropout=None, return_attention_scores
         scores = scores.masked_fill(mask == 0, -1e9)
     
     scores = F.softmax(scores, dim=-1)
+
     
     if dropout is not None:
         scores = dropout(scores)
-        
+
+
     output = torch.matmul(scores, v)
     # score: (bs, h, sl, sl)
     # v : (bs, h, sl, value_dim)

@@ -20,7 +20,6 @@
 
 import unittest
 import torch
-from torchinfo import summary
 from skimage import data
 from absl.testing import parameterized
 from torchvision.models import efficientnet_b3, EfficientNet_B3_Weights
