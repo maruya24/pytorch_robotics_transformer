@@ -31,10 +31,6 @@ from gym import spaces
 
 
 
-############# self._state_space (network space)の定義の際にshapeの4次元縛りをしないように変更した
-############# network_stateの更新の仕方など、inference時の挙動が不明
-
-
 # This is a robotics transformer network.
 class TransformerNetwork(nn.Module):
     """A transformer based actor network."""
@@ -104,6 +100,8 @@ class TransformerNetwork(nn.Module):
         self._attention_scores = []
         self._use_token_learner = use_token_learner
 
+        # this is used only when random sampling 
+        # when sampling, the output is used as network_state
         self._state_space = spaces.Dict(
             {
                 'context_image_tokens': 
@@ -111,7 +109,7 @@ class TransformerNetwork(nn.Module):
                             shape=(time_sequence_length, self._tokens_per_context_image, token_embedding_size), 
                             dtype=np.float32),
                 'action_tokens':
-                            spaces.MultiDiscrete(np.full((time_sequence_length, self._tokens_per_action),vocab_size)),
+                            spaces.MultiDiscrete(np.full((time_sequence_length, self._tokens_per_action), vocab_size)),
                 # Stores where in the window we are.
                 # This value is within range [0, time_sequence_length + 1].
                 # When seq_idx == time_sequence_length, context_image_tokens and
@@ -120,7 +118,7 @@ class TransformerNetwork(nn.Module):
                             spaces.Discrete(time_sequence_length+1)
                 # Our data is like context_image_tokens + action_tokens + context_image_tokens + action_tokens + context_image_tokens ...
                 # 1 time step means [context_image_tokens + action_tokens]
-                # seq_idx means which time steps we are. But it is adjusted when it exceeds time_sequence_length.
+                # seq_idx means which time steps we are. But it is adjusted to time_sequence_length when it exceeds time_sequence_length.
             }
         )
 
@@ -219,8 +217,9 @@ class TransformerNetwork(nn.Module):
         assert outer_rank in (1, 2), "outer rank should be 1 or 2"
 
         b, t = self._get_batch_size_and_seq_len(network_state) 
-        # space of network_state is self._state_space. network state is values that has batch dimension.
-        # network_state is mainly used when inference.
+        # network_state is used when inference.
+        # b : batch size
+        # t: time_sequence_length of this model
 
         # context_image_tokens: (b, t, num_tokens, embedding_dim)
         # action_tokens: [b, t, self._tokens_per_action]
@@ -233,7 +232,7 @@ class TransformerNetwork(nn.Module):
             # run transformer in loop to produce action tokens one-by-one
             seq_idx = network_state['seq_idx'][0]
             action_t = torch.minimum(seq_idx, 
-                    torch.tensor(self._time_sequence_length - 1)) # 0 <= action_t < time_sequence_length
+                    torch.tensor(self._time_sequence_length - 1))
             # Transformer shifts all to the left by one step by default (it's usually
             # predicting the next token as default training task...).
             transformer_shift = -1
@@ -247,8 +246,8 @@ class TransformerNetwork(nn.Module):
             # Repeat inference tokens_per_action times.
             for k in range(self._tokens_per_action):
                 action_index = start_index + k
-                # token: (b, 1)
-                # token_logits: (b, 1 vocab_size)
+                # token: (1, 1)
+                # token_logits: (1, 1 vocab_size)
                 token, token_logits = self._transformer_call_and_slice(
                     context_image_tokens,
                     action_tokens,
@@ -262,24 +261,24 @@ class TransformerNetwork(nn.Module):
                 # Add the predicted token to action_tokens
                 action_tokens = action_tokens.view(b, -1) # [b, t, self._tokens_per_action] -> [b, t * self._tokens_per_action]
                 action_start_index = (action_t * self._tokens_per_action) + k
-                # replace action_tokens[:, action_tokens] with the predicted token. Note that this is not insert.
-                # action_tokens: [b, t, self._tokens_per_action]
+                # replace action_tokens[:, action_start_index] with the predicted token. Note that this is not insert.
                 action_tokens = torch.concat([
                     action_tokens[:, :action_start_index], token,
                     action_tokens[:, action_start_index + 1:]
                 ],dim=1)
                 action_tokens = action_tokens.view(b, t, self._tokens_per_action) # [b, t * self._tokens_per_action] -> [b, t, self._tokens_per_action]
+
             self._aux_info.update({
                 # action_predictions_logits is
-                # [b, self._tokens_per_action, self._vocab_size]
+                # [1, self._tokens_per_action, self._vocab_size]
                 'action_predictions_logits': torch.concat(action_predictions_logits, 1)
             })
             
-            predicted_tokens_for_output = torch.concat(current_action_tokens, 1) # [b, self._tokens_per_action]
-            one_state_action_tokens = predicted_tokens_for_output.unsqueeze(1) # [b, 1, self._tokens_per_action]
+            predicted_tokens_for_output = torch.concat(current_action_tokens, 1) # [1, self._tokens_per_action]
+            one_state_action_tokens = predicted_tokens_for_output.unsqueeze(1) # [1, 1, self._tokens_per_action]
 
-            # Add predicted tokens to action_tokens to network_state['action_tokens']
-            state_action_tokens = network_state['action_tokens'] # (b, time_sequence_length, self._tokens_per_action)
+            # Add predicted action tokens  to network_state['action_tokens']
+            state_action_tokens = network_state['action_tokens'] # (1, time_sequence_length, self._tokens_per_action)
             # replace state_action_tokens[:, action_t, ...] with the predicted tokens. Note that this is not insert.
             network_state['action_tokens'] = torch.concat([
                 state_action_tokens[:, :action_t, ...], one_state_action_tokens,
@@ -314,7 +313,7 @@ class TransformerNetwork(nn.Module):
             predicted_tokens_for_output = torch.argmax(action_logits_for_output, dim=-1)
 
             num_items = (float(b * t) * self._single_time_step_num_tokens)
-            # action_logits_for_training: (bs, t, self._tokens_per_action, vocab_size)
+            # action_logits_for_training: (b, t, self._tokens_per_action, vocab_size)
             # action_tokens, (b, t, self._tokens_per_action)
             # action_loss: (b, t) 
             action_loss = torch.mean(
@@ -336,10 +335,10 @@ class TransformerNetwork(nn.Module):
         # output_actions: Dict[str, np.ndarray]
         output_actions = self._action_tokenizer.detokenize(predicted_tokens_for_output)
 
+        # output_actions is the last actions.
+        # network_stape is the past state that is used for next inference.
         return output_actions, network_state
 
-    ######## change from original
-    # def add_summaries
 
 
     def _get_outer_rank(self, observations: Dict[str, torch.Tensor]) -> int:
@@ -381,7 +380,7 @@ class TransformerNetwork(nn.Module):
     def _assemble_input_token_sequence(self, context_image_tokens, action_tokens, batch_size):
         # embed action tokens
         action_tokens = F.one_hot(action_tokens, num_classes=self._vocab_size).to(torch.float32)
-        action_tokens = self._action_token_emb(action_tokens) # [b, t , num_tokens, emb_dim]
+        action_tokens = self._action_token_emb(action_tokens) # [b, t , num_action_tokens, emb_dim]
 
         ###### change from original. we don't turn action embedded tokens into zeros.
         # action_tokens = torch.zeros_like(action_tokens) ############
@@ -429,7 +428,7 @@ class TransformerNetwork(nn.Module):
         outer_rank = self._get_outer_rank(observations)
 
         if outer_rank == 1:  # This is an inference call
-            seq_idx = network_state['seq_idx'][0]
+            seq_idx = network_state['seq_idx'][0] # 0 ~ time_sequence_length
             time_step = torch.minimum(seq_idx, 
                     torch.tensor(self._time_sequence_length - 1))
             image = image.unsqueeze(1) # [b, c, h, w] -> [b, 1, c, h, w]
@@ -452,7 +451,6 @@ class TransformerNetwork(nn.Module):
         # get image tokens
         context_image_tokens = self._image_tokenizer(image, context=context) # (batch, t, num_tokens, embedding_dim)
         num_tokens = context_image_tokens.shape[2]
-        # context_image_tokens = context_image_tokens.view(b, input_t, num_tokens, 1, -1) # (batch, t, num_tokens, 1, embedding_dim)
 
 
         # update network state at inference
@@ -465,7 +463,7 @@ class TransformerNetwork(nn.Module):
         # if current time step >= time_sequence_length, we store context_image_tokens after we discard the oldest context_image_tokens.
         # Here, we implement that by shifting state_image_token to the left.
         if outer_rank == 1:  # This is an inference call
-            state_image_tokens = network_state['context_image_tokens'] # (b, time_sequence_length, tokens_per_context_image, token_embedding_size)
+            state_image_tokens = network_state['context_image_tokens'] # (1, time_sequence_length, tokens_per_context_image, token_embedding_size)
             # network_state as input for this call is the output from the last call.
             # Therefore, we need to shift all images to the left by 1 in the time axis
             # to align with the time dim in this call.
@@ -476,11 +474,11 @@ class TransformerNetwork(nn.Module):
             # Therefore, shiftimg will always occur when time step exceeds time_sequence_length.
 
 
-            # Note that in inference, size of context_image_tokens is (batch, 1, num_tokens, embedding_dim)
             # maximum of time_step is self._time_sequence_length - 1
             context_image_tokens = torch.concat([
-                state_image_tokens[:, :time_step, ...], context_image_tokens,
-                state_image_tokens[:, time_step + 1:, ...]
+                state_image_tokens[:, :time_step, ...], context_image_tokens, # Note that in inference, size of context_image_tokens is (batch, 1, num_tokens, embedding_dim)
+                state_image_tokens[:, time_step + 1:, ...] # if time_step == time_sequence_lengths -1, this will be empty tensor. 
+                # So this tensor will be ignored when concat
             ], dim=1)
             network_state['context_image_tokens'] = context_image_tokens
 

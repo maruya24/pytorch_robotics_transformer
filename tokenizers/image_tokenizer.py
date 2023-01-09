@@ -49,6 +49,8 @@ class RT1ImageTokenizer(nn.Module):
             num_tokens = 100
         return num_tokens
             
+    # Note that context is the same value along with time axis.
+    # This means (b, 0, embedding_dim) == (b, 1, embedding_dim) == (b, 2, embedding_dim) ...
     def forward(self, image: torch.Tensor, context: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Gets image tokens.
 

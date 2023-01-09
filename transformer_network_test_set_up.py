@@ -47,7 +47,7 @@ def state_space_list() -> List[spaces.Dict]:
         {
             'image': spaces.Box(low=0.0, high=1.0, 
                             shape=(3, HEIGHT, WIDTH), dtype=np.float32),
-            'natural_language_embedding': spaces.Box(low=-np.inf,high=-np.inf, 
+            'natural_language_embedding': spaces.Box(low=-np.inf, high=np.inf, 
                             shape=[512], dtype=np.float32)
         }
     )
@@ -110,7 +110,7 @@ class TransformerNetworkTestUtils(parameterized.TestCase, unittest.TestCase):
             {
                 'image': spaces.Box(low=0.0, high=1.0, 
                                 shape=(3, image_height, image_width), dtype=np.float32),
-                'natural_language_embedding': spaces.Box(low=-np.inf,high=-np.inf, 
+                'natural_language_embedding': spaces.Box(low=-np.inf, high=np.inf, 
                                 shape=[self.token_embedding_size], dtype=np.float32)
             }
         )
