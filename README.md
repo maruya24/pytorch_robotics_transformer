@@ -19,7 +19,7 @@ This implementation mostly follows the original codes but I made some changes fo
 - Omitted some variables, functions, classes, and tests including those that are no longer necessary for this repository.
 
 ## Note
-I didn't implement squence_agent.py and its related codes. Because those codes are for training and inference that use the tf_agent library, so I figure it is not nesecerary in PyTorch implementation. 
+I didn't implement squence_agent.py and its related codes. Because those codes are for training and inference that use the tf_agent library, so I figure it is not necessary in PyTorch implementation. 
 This repository enables you to use RT-1 just like the other Reinforcement learning codes that utilize PyTorch and OpenAI Gym, without the tf_agent library.
 
 
