@@ -182,10 +182,9 @@ class TransformerNetwork(nn.Module):
                 action_j = self._get_action_index_for_token(j)
                 mask = 0
                 if action_i != -1 and action_j != -1: # Check both of i and j are actions.
-                    ######## change from original. We consider actions of previous time steps.
-                    # # Ignore actions of previous time steps.
-                    # if action_j < action_i:
-                    #     mask = 1
+                    # Ignore actions of previous time steps.
+                    if action_j < action_i:
+                        mask = 1
                     # If we're not auto-regression, ignore action of current time step.
                     if (action_j == action_i and j <= i):
                         mask = 1
@@ -381,8 +380,7 @@ class TransformerNetwork(nn.Module):
         action_tokens = F.one_hot(action_tokens, num_classes=self._vocab_size).to(torch.float32)
         action_tokens = self._action_token_emb(action_tokens) # [b, t , num_action_tokens, emb_dim]
 
-        ###### change from original. we don't turn action embedded tokens into zeros.
-        # action_tokens = torch.zeros_like(action_tokens) ############
+        action_tokens = torch.zeros_like(action_tokens) # This removes autoregressively conditioning on actions becuase it did not benefit performance and slowed inference.
         
 
         # assemble token sequence
