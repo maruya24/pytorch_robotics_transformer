@@ -20,7 +20,6 @@
 import unittest
 import torch
 
-# from robotics_transformer_pytorch.transformer import Transformer
 from pytorch_robotics_transformer.transformer import Transformer
 from absl.testing import parameterized
 
