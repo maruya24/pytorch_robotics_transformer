@@ -12,16 +12,15 @@ This implementation mostly follows the original codes but I made some changes fo
 ## Main Changes
 - Translated TensorFlow implementation into PyTorch implementation.
 - Used spaces of OpenAI gym to define observation and action variables instead of using tensor_spec of TF-Agents.
-- Took actions that are before the current timestep into consideration.
+- Abolished 4-d constraint of some specs in transformer_network.py
+- Added useful functions and put those in utils.py.
 - Added extra comments.
-- Abolished 4-d constraint of some specs.
 - Didn't implement the add_summaries function of transformer_network.py which is for tensorboard logging.
-- Added useful functions and store those in utils.py
 - Omitted some variables, functions, classes, and tests including those that are no longer necessary for this repository.
 
 ## Note
-I didn't implement squence_agent.py and its test codes for now. 
-I'm going to upload those codes in a few days. And I may add tensorboard logging.
+I didn't implement squence_agent.py and its related codes. Because those codes are for training and inference that use the tf_agent library, so I figure it is not nesecerary in PyTorch implementation. 
+This repository enables you to use RT-1 just like the other Reinforcement learning codes that utilize PyTorch and OpenAI Gym, without the tf_agent library.
 
 
 ## License
