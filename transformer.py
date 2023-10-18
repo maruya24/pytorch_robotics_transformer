@@ -157,7 +157,8 @@ class Transformer(nn.Module):
             ):
         super(Transformer, self).__init__()
 
-        self._layers = [
+        # issue#3 use nn.ModuleList
+        self._layers = nn.ModuleList([
         _TransformerLayer(  # pylint: disable=g-complex-comprehension
             layer_size=layer_size,
             num_heads=num_heads,
@@ -165,7 +166,7 @@ class Transformer(nn.Module):
             dropout_rate=dropout_rate,
             return_attention_scores=return_attention_scores)
             for _ in range(num_layers)
-        ]
+        ])
 
         self._token_emb = nn.Linear(input_token_emb_dim, feed_forward_size)
         self._position_emb = nn.Embedding(max_seq_len, feed_forward_size) # <--- 工夫が必要 ここだけBERTのようにする？
